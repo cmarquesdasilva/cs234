@@ -26,7 +26,8 @@ def load_and_merge_data() -> pd.DataFrame:
     """
     print("Loading datasets...")
     ratings = pd.read_csv("src/data/ratings.csv") 
-    movies = pd.read_csv("src/data/movies.csv") 
+    movies = pd.read_csv("src/data/movies.csv")
+    num_movies = movies.shape[0] 
     
     movies_properties = pd.read_json("src/data/movies_data.json")[["movieId","Plot"]] # I generated this using omdb API, therefore, I'm not including it in the repo.
 
@@ -35,7 +36,7 @@ def load_and_merge_data() -> pd.DataFrame:
     data = ratings.merge(movies, on="movieId", how="left")
     data = data.merge(movies_properties, on="movieId", how='left')
 
-    return data
+    return data, num_movies
 
 def generate_prompt_for_user_profile(data: pd.DataFrame, type: str = "train") -> pd.DataFrame:
     """

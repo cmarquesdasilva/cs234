@@ -153,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument("--results_dir", default="src/data/results/", type=str, required=False, help="Directory containing predictions CSV files")
     parser.add_argument("--movies", default="src/data/movies.csv", type=str, required=False, help="Path to movies CSV file")
     parser.add_argument("--ratings", default="src/data/ratings.csv", type=str, required=False, help="Path to ratings CSV file")
+    parser.add_argument("--balance_users", action="store_true", help="Balance the numbers of users among all sets")
     args = parser.parse_args()
     
     all_files = [f for f in os.listdir(args.results_dir) if f.endswith('.csv')]
@@ -165,8 +166,8 @@ if __name__ == "__main__":
         df = load_data(file_path, args.movies, args.ratings)
         df['source'] = os.path.splitext(file)[0]
 
-        if os.path.splitext(file)[0] == "best_train_predictions":
-            df.query("userId == 22").to_csv("user_22.csv", index=False)
+        if os.path.splitext(file)[0] == "agents_prediction":
+            usersId = df["userId"].unique()
 
         user_stats = compute_user_metrics(df)
         ndcg_df = compute_ndcg(df, user_stats)
@@ -189,8 +190,11 @@ if __name__ == "__main__":
     compute_confusion_matrices(final_df, "confusion_matrix")
     
     # Plot boxplots for Gini Index and Most Frequent Label
-    plot_boxplots(final_user_stats, "boxplot")
+    if args.balance_users:
+        # Select the users in usersId for all final_user_stat
+        final_user_stats = final_user_stats[final_user_stats["userId"].isin(usersId)]
+        output_file = "balanced_boxplot"
+    else:
+        output_file = "boxplot"
 
-    # Export User with gini index > 0.7
-    high_gini_users = final_user_stats[final_user_stats['gini_index'] > 0.7]
-    high_gini_users.to_csv("high_gini_users.csv", index=False)
+    plot_boxplots(final_user_stats, output_file)
