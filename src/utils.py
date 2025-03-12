@@ -2,11 +2,19 @@
 This module provides utility functions for loading, merging, and processing movie rating data.
 It includes functions to load and merge datasets, generate user profile prompts, and split data by time.
 """
-import pandas as pd
-from tqdm import tqdm
-from datetime import datetime
+# Standard library imports
 import os
+from datetime import datetime
+from typing import List, Any
+
+# Third-party imports
+import pandas as pd
 import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+# Local application imports
+from src.reward_model import RewardModel
 
 # Model Traning Utilities
 def load_and_merge_data() -> pd.DataFrame:
@@ -17,14 +25,16 @@ def load_and_merge_data() -> pd.DataFrame:
         pd.DataFrame: Merged dataset with user ratings and movie titles.
     """
     print("Loading datasets...")
-    ratings = pd.read_csv("src/data/ratings.csv")
-    movies = pd.read_csv("src/data/movies.csv")
+    ratings = pd.read_csv("src/data/ratings.csv") 
+    movies = pd.read_csv("src/data/movies.csv") 
+    
+    movies_properties = pd.read_json("src/data/movies_data.json")[["movieId","Plot"]] # I generated this using omdb API, therefore, I'm not including it in the repo.
 
-    # Convert timestamp to datetime
     ratings["timestamp"] = pd.to_datetime(ratings["timestamp"], unit="s")
-    print(ratings["timestamp"].min(), ratings["timestamp"].max())
-    # Merge movie titles
+
     data = ratings.merge(movies, on="movieId", how="left")
+    data = data.merge(movies_properties, on="movieId", how='left')
+
     return data
 
 def generate_prompt_for_user_profile(data: pd.DataFrame, type: str = "train") -> pd.DataFrame:
@@ -105,17 +115,92 @@ def split_data_by_time(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return train_df, val_df
 
 # Model Training Utilities #
-def save_model(model, output_dir):
+def save_model(model, output_dir, prefix_name=None):
     os.makedirs(output_dir, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(output_dir, "pytorch_model.bin"))
+    filename = "pytorch_model.bin"
+    if prefix_name:
+      filename = f"{prefix_name}_pytorch_model.bin"
+    
+    torch.save(model.state_dict(), os.path.join(output_dir, filename))
     print(f"Model saved to {output_dir}")
+
+
+def load_model(model_path,
+               user_vocab_size,
+               movie_vocab_size,
+               device,
+               use_time_encoding=True,
+               use_plot_embedder=True):
+    
+    model = RewardModel(user_vocab_size,
+                        movie_vocab_size,
+                        use_time_encoding=use_time_encoding,
+                        use_plot_embedder=use_plot_embedder,
+                        )
+    ckpt = torch.load(os.path.join(model_path, "pytorch_model.bin"),
+                      map_location=device,
+                      weights_only=True)
+    model.load_state_dict(ckpt)
+    model.to(device)
+    return model
+
+
+@torch.no_grad()
+def inference(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    device: torch.device
+) -> List[List[Any]]:
+    """
+    Runs forward passes on the given dataloader and returns predictions 
+    along with real user/movie IDs. This version does not compute 
+    accuracy or loss, since ground truth labels may not be available.
+    
+    Returns:
+        predictions (List[List[Any]]):
+            A list of [real_user_id, real_movie_id, predicted_label].
+    """
+    model.eval()
+    predictions = []
+
+    progress_bar = tqdm(dataloader, desc="Inference", leave=False)
+    for batch in progress_bar:
+        user_ids = batch["user_ids"].to(device)
+        movie_ids = batch["movie_ids"].to(device)
+        genres_text = batch["genres_text"]   # list of str
+        plot_text = batch["plot"]            # list of str
+        timestamps = batch["timestamps"].to(device)
+
+        # Forward pass
+        logits = model(
+            user_ids=user_ids,
+            movie_ids=movie_ids,
+            genres=genres_text,
+            plot=plot_text,
+            timestamps=timestamps
+        )
+
+        # Get predicted class
+        preds = torch.argmax(logits, dim=-1).cpu().numpy()
+
+        # Retrieve "real" user/movie IDs for each sample
+        real_uids = batch["real_user_id"].tolist()
+        real_mids = batch["real_movie_id"].tolist()
+
+        for i in range(len(preds)):
+            predictions.append([
+                real_uids[i],
+                real_mids[i],
+                preds[i]  # predicted label ID
+            ])
+
+    return predictions
 
 def normalize_month(month_index: int, max_month=60) -> float:
     """
     Normalize month index to range [0,1].
     """
     return (month_index - 1) / (max_month - 1)
-
 
 def timestamp_to_month_index(timestamp: str, reference_date: str) -> int:
     """
