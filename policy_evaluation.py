@@ -32,7 +32,7 @@ def load_policy(policy_path: str,
     )
 
     # Construct full path to the saved model file
-    model_file = os.path.join(policy_path, "model.bin")
+    model_file = os.path.join(policy_path, "baseline_pytorch_model.bin")
     if not os.path.isfile(model_file):
         raise FileNotFoundError(f"Model file not found at: {model_file}")
 
@@ -59,11 +59,11 @@ def evaluate_policy_comparison(movies_path,
     env_config = SimpleNamespace(
         device="cuda" if torch.cuda.is_available() else "cpu",
         user_vocab_size=611,
-        movie_vocab_size=9725
+        movie_vocab_size=9745
     )
 
     # Initialize RankZero and environment
-    ranker = RankZero(movies_path, ratings_path, use_gpu=(env_config.device=="cuda"))
+    ranker = RankZero(movies_path, ratings_path, use_gpu=False)
     env = MovieRankingEnv(ranker, env_config)
 
     # Load trained policy model
@@ -78,6 +78,7 @@ def evaluate_policy_comparison(movies_path,
 
     # Retrieve user IDs
     user_ids = sorted(ranker.user_fav_genres["userId"].unique())
+    users_id = random.sample(range(1, 610), 25)
 
     # Evaluate for each user, showing progress with tqdm
     for uid in tqdm(user_ids, desc="Evaluating Policies"):
@@ -125,6 +126,6 @@ if __name__ == "__main__":
     evaluate_policy_comparison(
         movies_path="src/data/movies_spec.csv",
         ratings_path="src/data/ratings.csv",
-        policy_path="src/policy_model/baseline",
+        policy_path="src/policy_model",
         num_random_samples=10  # Number of random samples per user
     )

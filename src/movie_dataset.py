@@ -24,7 +24,7 @@ def create_movie_id_map() -> Dict[int, int]:
     """
     Build a dictionary to map sparse/large movieIds to a compact range 0..(num_movies-1).
     """
-    df = load_and_merge_data()
+    df = pd.read_csv("src/data/movies.csv") 
     unique_movie_ids = sorted(df["movieId"].unique())
     return {m: i for i, m in enumerate(unique_movie_ids)}
 

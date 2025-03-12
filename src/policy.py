@@ -13,7 +13,7 @@ import faiss
 from transformers import AutoTokenizer, AutoModel
 
 from tqdm import tqdm
-from src.movie_dataset import MovieRatingDataset, LABEL_MAP
+from src.movie_dataset import MovieRatingDataset
 from torch.utils.data import DataLoader
 from src.utils import load_model, inference, save_model
 from src.monitoring import log_training
@@ -204,9 +204,8 @@ class MovieRankingEnv:
         predictions = inference(model=model,
         dataloader=movie_dataloader,
         device=device)
-        score = predictions[0][-1]
-        inv_label = {v: k for k,v in LABEL_MAP.items()}
-        return inv_label[score]
+        scores = predictions[0][-1]
+        return scores
 
 
 class PolicyModel(nn.Module):
@@ -286,7 +285,6 @@ class PPOTrainer:
         return torch.tensor(returns, dtype=torch.float32)
     
     def train(self, num_episodes=1000):
-      
       for episode in range(num_episodes):
         user_id = self.env.sample_user()
         top_movies = self.env.get_top25_movies(user_id)

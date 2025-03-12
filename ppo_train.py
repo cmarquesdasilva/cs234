@@ -10,7 +10,7 @@ def main():
     ratings_path = "src/data/ratings.csv"
     env_config = SimpleNamespace(device="cuda" if torch.cuda.is_available() else "cpu",
     user_vocab_size=611,
-    movie_vocab_size=9725)
+    movie_vocab_size=9743)
     
     ranker = RankZero(movies_path, ratings_path, use_gpu=False)
     env = MovieRankingEnv(ranker, config=env_config)
