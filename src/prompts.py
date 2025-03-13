@@ -1,17 +1,26 @@
+"""
+This script provides utilities for analyzing user psychological traits, movie attributes,
+and predicting user ratings based on profiles or past ratings using Azure OpenAI services.
+"""
+
 import os
+from typing import Dict, Any, Union, List
+
+import pandas as pd
 from dotenv import load_dotenv
+
 from langchain_openai import AzureChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-import pandas as pd
-
-load_dotenv()
 
 # Load environment variables
+load_dotenv()
+
+# Load Azure OpenAI configuration
 endpoint_url = os.getenv("ENDPOINT_URL")
 azure_key = os.getenv("AZURE_OPENAI_KEY")
 deployment = os.getenv("DEPLOYMENT_NAME")
-api_verions = os.getenv("API_VERSION")
+api_version = os.getenv("API_VERSION")
 
 if not all([endpoint_url, azure_key, deployment]):
     raise ValueError("Missing required environment variables: check ENDPOINT_URL, AZURE_OPENAI_KEY, and DEPLOYMENT_NAME")
@@ -20,20 +29,32 @@ if not all([endpoint_url, azure_key, deployment]):
 azure_llm = AzureChatOpenAI(
     azure_endpoint=endpoint_url,
     api_key=azure_key,
-    api_version=api_verions,
+    api_version=api_version,
     deployment_name=deployment
 )
 
 # Agent memory
-agent_memory = {}
+agent_memory: Dict[int, Dict[str, Any]] = {}
+
 
 def round_to_half_step(value: float) -> float:
     """Rounds the rating to the nearest 0.0 or 0.5 step."""
     return round(value * 2) / 2
 
 
-def scan_user_psychological_trait(user_data: str) -> str:
-    """Summarizes user preferences into a JSON-structured response."""
+def scan_user_psychological_trait(user_data: str) -> Dict[str, Any]:
+    """
+    Analyze a user's movie ratings to extract psychological traits and preferences.
+    
+    Uses an LLM to generate a structured JSON summary of a user's movie preferences based on their 
+    rating history, including personality traits, cognitive styles, and emotional tendencies.
+    
+    Args:
+        user_data: String containing user's movie rating history
+        
+    Returns:
+        Dictionary containing structured analysis of psychological traits and movie preferences
+    """
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
             "You are an AI assistant analyzing a user's movie rating history. "
