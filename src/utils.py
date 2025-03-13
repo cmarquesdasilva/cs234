@@ -2,21 +2,17 @@
 This module provides utility functions for loading, merging, and processing movie rating data.
 It includes functions to load and merge datasets, generate user profile prompts, and split data by time.
 """
-# Standard library imports
 import os
 from datetime import datetime
 from typing import List, Any
 
-# Third-party imports
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# Local application imports
 from src.reward_model import RewardModel
 
-# Model Traning Utilities
 def load_and_merge_data() -> pd.DataFrame:
     """
     Load and merge movie rating data with metadata.
@@ -29,7 +25,7 @@ def load_and_merge_data() -> pd.DataFrame:
     movies = pd.read_csv("src/data/movies.csv")
     num_movies = movies.shape[0] 
     
-    movies_properties = pd.read_json("src/data/movies_data.json")[["movieId","Plot"]] # I generated this using omdb API, therefore, I'm not including it in the repo.
+    movies_properties = pd.read_json("src/data/movies_data.json")[["movieId","Plot"]]
 
     ratings["timestamp"] = pd.to_datetime(ratings["timestamp"], unit="s")
 

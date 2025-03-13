@@ -309,7 +309,6 @@ class PolicyModel(nn.Module):
             action_dim: Number of possible actions (movies to recommend)
             hidden_dim: Size of hidden layers in the neural networks
         """
-    def __init__(self, embedding_dim=384, action_dim=25, hidden_dim=128):
         super(PolicyModel, self).__init__()
         
         # Policy network
@@ -328,7 +327,7 @@ class PolicyModel(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1)  # Single scalar value
+            nn.Linear(hidden_dim, 1)
         )
 
     def forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
