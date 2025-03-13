@@ -1,16 +1,12 @@
-# Ranker Zero
-import pandas as pd
-import numpy as np
-import os
-
-import pandas as pd
-import numpy as np
 import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import faiss
 from transformers import AutoTokenizer, AutoModel
+from typing import Dict, List, Set, Tuple, Optional, Any, Union
+import pandas as pd
+import numpy as np
 
 from tqdm import tqdm
 from src.movie_dataset import MovieRatingDataset
@@ -18,16 +14,35 @@ from torch.utils.data import DataLoader
 from src.utils import load_model, inference, save_model
 from src.monitoring import log_training
 
-import numpy as np
 from torch.distributions import Categorical
 
 class RankZero:
-    def __init__(self, movies_path, ratings_path,
-    processed_movie_catalog_path="src/data/movie_catalog.csv",
-    processed_user_fav_path="src/data/user_fav_genres.csv",
-    use_gpu=False, 
-    seed=42):
-        """Initialize RankZero and retrieve top 25 movies for user"""
+    """
+    A recommendation system that ranks movies based on user preferences.
+    
+    This class generates personalized movie recommendations by analyzing user rating history,
+    favorite genres, and content similarity using pre-trained language models. It handles
+    data preprocessing, embedding generation, and similarity-based movie ranking.
+    """
+
+    def __init__(self, 
+                 movies_path: str, 
+                 ratings_path: str,
+                 processed_movie_catalog_path: str = "src/data/movie_catalog.csv",
+                 processed_user_fav_path: str = "src/data/user_fav_genres.csv",
+                 use_gpu: bool = False, 
+                 seed: int = 42) -> None:
+        """
+        Initialize RankZero recommendation system.
+        
+        Args:
+            movies_path: Path to the CSV file containing movie data
+            ratings_path: Path to the CSV file containing user ratings
+            processed_movie_catalog_path: Path to save/load processed movie catalog
+            processed_user_fav_path: Path to save/load processed user favorite genres
+            use_gpu: Whether to use GPU for computation if available
+            seed: Random seed for reproducibility
+        """
         
         self.use_gpu = use_gpu
         self.rating_df = pd.read_csv(ratings_path)
@@ -58,8 +73,16 @@ class RankZero:
         # Generate and store embeddings
         self.generate_movie_embeddings()
     
-    def create_movie_catalog(self, movies_path):
-        """Create the movie catalog with popularity scores."""
+    def create_movie_catalog(self, movies_path: str) -> pd.DataFrame:
+        """
+        Create the movie catalog with popularity scores.
+        
+        Args:
+            movies_path: Path to the CSV file containing movie data
+            
+        Returns:
+            DataFrame containing movie metadata with calculated popularity scores
+        """
         movies = pd.read_csv(movies_path)  # movieId, genres, plot, imdbVotes
         
         # Compute IMDb popularity score
@@ -72,8 +95,16 @@ class RankZero:
         movies['popularityScore'] = np.log1p(movies['popularityScore'] * 1e6)
         return movies
     
-    def create_user_fav_genres(self, movies_path):
-        """Create user favorite genres dataset."""
+    def create_user_fav_genres(self, movies_path: str) -> pd.DataFrame:
+        """
+        Create user favorite genres dataset based on rating history.
+        
+        Args:
+            movies_path: Path to the CSV file containing movie data
+            
+        Returns:
+            DataFrame mapping users to their top 5 favorite genres
+        """
         movies = pd.read_csv(movies_path)  # movieId, title, genres
         
         # Merge ratings with movie genres
@@ -96,8 +127,12 @@ class RankZero:
         
         return user_fav_genres
 
-    def generate_movie_embeddings(self):
-        """Generate and store embeddings for all movies."""
+    def generate_movie_embeddings(self) -> None:
+        """
+        Generate and store embeddings for the movies using a pre-trained language model.
+        
+        This method creates embeddings from movie plots and genres and stores them in the movie catalog.
+        """
         movie_texts = self.movie_catalog.apply(lambda row: row['Plot'] + " " + row['genres'], axis=1).tolist()
         
         inputs = self.tokenizer(movie_texts, padding=True, truncation=True, return_tensors="pt").to(self.device)
@@ -107,8 +142,20 @@ class RankZero:
         
         self.movie_catalog['embedding'] = list(movie_embeddings)
     
-    def get_top25_movies(self, user_id):
-        """Retrieve the top 25 movies based on user preferences and similarity."""
+    def get_top25_movies(self, user_id: int) -> pd.DataFrame:
+        """
+        Retrieve the top 25 movies based on user preferences and content similarity.
+        
+        The method uses a two-stage filtering process:
+        1. Genre-based filtering to select movies matching user's favorite genres
+        2. Embedding similarity scoring to find movies similar to user's highly rated content
+        
+        Args:
+            user_id: User identifier to retrieve recommendations for
+            
+        Returns:
+            DataFrame containing the top 25 recommended movies for the user
+        """
         
         if user_id in self.user_top25_cache:
             return self.user_top25_cache[user_id]
@@ -164,24 +211,61 @@ class RankZero:
 
 
 class MovieRankingEnv:
-    def __init__(self, ranker, config):
-        """Environment to interact with RankZero for policy training."""
+    """
+    Environment for movie recommendation policy training.
+    
+    Provides an interface between a recommendation system and a reinforcement learning agent,
+    allowing the agent to learn optimal recommendation strategies through interaction.
+    """
+    def __init__(self, ranker: RankZero, config: Any) -> None:        
+        """
+        Initialize the movie ranking environment.
+        
+        Args:
+            ranker: RankZero instance to generate movie recommendations
+            config: Configuration object with training parameters
+        """
         self.ranker = ranker
         self.config = config
     
-    def sample_user(self):
-        """Randomly sample a user from the dataset."""
+    def sample_user(self) -> int:
+        """
+        Randomly sample a user ID from the dataset.
+        
+        Returns:
+            User ID as an integer
+        """        
         return self.ranker.user_fav_genres['userId'].sample().values[0]
     
-    def get_top25_movies(self, user_id):
-        """Retrieve top 25 movies for the user."""
+    def get_top25_movies(self, user_id: int) -> pd.DataFrame:
+        """
+        Retrieve top 25 movies for the specified user.
+        
+        Args:
+            user_id: User identifier to retrieve recommendations for
+            
+        Returns:
+            DataFrame containing the top 25 recommended movies
+        """
         return self.ranker.get_top25_movies(user_id)
     
-    def get_rewards(self, user_id:int, movies: pd.DataFrame, config: dict, reward_type='tf'):
-        """Generate reward scores for ranking."""
+    def get_rewards(self, user_id: int, movies: pd.DataFrame, config: Any, reward_type: str = 'tf') -> float:
+        """
+        Generate reward scores for the recommended movies.
         
-        # Build Datasetmovies = 
-        movies.copy()
+        Uses a pre-trained reward model to evaluate the quality of recommendations.
+        
+        Args:
+            user_id: User identifier for the recommendation
+            movies: DataFrame containing the recommended movies
+            config: Configuration object with model parameters
+            reward_type: Type of reward function to use
+            
+        Returns:
+            Reward score for the recommended movies
+        """
+        # Build Datasetmovies
+        movies = movies.copy() # Remove annoying warnings...
         movies.loc[:, "userId"] = user_id
         movies.loc[:, "timestamp"] = pd.to_datetime("now")
    
@@ -210,10 +294,21 @@ class MovieRankingEnv:
 
 class PolicyModel(nn.Module):
     """
-    Processes a (25, embedding_dim) movie-embedding matrix by
-    aggregating into a single state vector and then applying
-    a fully connected neural net.
+    Neural network model for movie recommendation policy.
+    
+    Processes movie embeddings to learn optimal recommendation strategies.
+    Includes both policy and value networks for actor-critic reinforcement learning.
     """
+
+    def __init__(self, embedding_dim: int = 384, action_dim: int = 25, hidden_dim: int = 128) -> None:
+        """
+        Initialize the policy model.
+        
+        Args:
+            embedding_dim: Dimension of movie embeddings
+            action_dim: Number of possible actions (movies to recommend)
+            hidden_dim: Size of hidden layers in the neural networks
+        """
     def __init__(self, embedding_dim=384, action_dim=25, hidden_dim=128):
         super(PolicyModel, self).__init__()
         
@@ -236,29 +331,54 @@ class PolicyModel(nn.Module):
             nn.Linear(hidden_dim, 1)  # Single scalar value
         )
 
-    def forward(self, state: torch.Tensor):
+    def forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        state: shape (25, embedding_dim)
-               i.e., 25 movie embeddings for a given user or situation.
+        Process movie embeddings to produce action probabilities and state value.
         
-        We do a simple mean-pool so that we have a single
-        embedding vector (embedding_dim,).
+        Args:
+            state: Tensor of shape (25, embedding_dim) containing movie embeddings
+            
+        Returns:
+            Tuple containing:
+            - action_probs: Probability distribution over possible actions (shape: [25])
+            - state_value: Estimated value of the current state (shape: [1])
         """
-        # Aggregate 25 embeddings into a single vector
-        # shape becomes (embedding_dim,)
+
         aggregated = state.mean(dim=0)
 
-        # Pass aggregated embedding through the policy network
-        action_probs = self.policy(aggregated)  # shape: (25,)
+        action_probs = self.policy(aggregated)  
 
-        # Also pass through the value network for the baseline
-        state_value = self.value(aggregated)    # shape: (1,)
-
+        state_value = self.value(aggregated)   
         return action_probs, state_value
 
 
 class PPOTrainer:
-    def __init__(self, env, action_dim=25, lr=3e-4, gamma=0.99, epsilon=0.2, epochs=10, batch_size=64):
+    """
+    Proximal Policy Optimization (PPO) trainer for movie recommendation policies.
+    
+    Implements the PPO algorithm to train policy models for optimizing movie recommendations.
+    """
+
+    def __init__(self, 
+                 env: MovieRankingEnv, 
+                 action_dim: int = 25, 
+                 lr: float = 3e-4, 
+                 gamma: float = 0.99, 
+                 epsilon: float = 0.2, 
+                 epochs: int = 10, 
+                 batch_size: int = 64) -> None:
+        """
+        Initialize the PPO trainer.
+        
+        Args:
+            env: Movie ranking environment for agent interaction
+            action_dim: Number of possible actions (movies to recommend)
+            lr: Learning rate for optimizer
+            gamma: Discount factor for future rewards
+            epsilon: Clipping parameter for PPO
+            epochs: Number of optimization epochs per batch
+            batch_size: Size of batches for training
+        """        
         self.env = env
         self.gamma = gamma
         self.epsilon = epsilon
@@ -269,14 +389,34 @@ class PPOTrainer:
         self.optimizer = optim.Adam(self.policy_model.parameters(), lr=lr)
         self.loss_fn = nn.MSELoss()
         
-    def select_action(self, state):
+    def select_action(self, state: np.ndarray) -> Tuple[int, torch.Tensor]:
+        """
+        Select an action using the current policy.
+        
+        Args:
+            state: Movie embeddings representing the current state
+            
+        Returns:
+            Tuple containing:
+            - Selected action index
+            - Log probability of the selected action
+        """        
         state = torch.tensor(state, dtype=torch.float32).to(self.env.config.device)
         action_probs, _ = self.policy_model(state)
         dist = Categorical(action_probs)
         action = dist.sample()
         return action.item(), dist.log_prob(action)
     
-    def compute_returns(self, rewards):
+    def compute_returns(self, rewards: List[float]) -> torch.Tensor:
+        """
+        Compute discounted returns for a sequence of rewards.
+        
+        Args:
+            rewards: List of rewards received over time
+            
+        Returns:
+            Tensor of discounted returns
+        """        
         returns = []
         G = 0
         for r in reversed(rewards):
@@ -284,50 +424,57 @@ class PPOTrainer:
           returns.insert(0, G)
         return torch.tensor(returns, dtype=torch.float32)
     
-    def train(self, num_episodes=1000):
-      for episode in range(num_episodes):
-        user_id = self.env.sample_user()
-        top_movies = self.env.get_top25_movies(user_id)
+    def train(self, num_episodes: int = 1000) -> None:
+        """
+        Train the policy model using PPO algorithm.
+        
+        Args:
+            num_episodes: Number of training episodes
+        """      
 
-        # Send all 25 movie embeddings as input to the policy
-        movie_features = np.stack(top_movies['embedding'].values)
+        for episode in range(num_episodes):
+            user_id = self.env.sample_user()
+            top_movies = self.env.get_top25_movies(user_id)
 
-        # Get action probabilities and sample an action
-        action, log_prob = self.select_action(movie_features)
-        
-        # Compute reward for the selected action
-        reward = self.env.get_rewards(user_id, top_movies.iloc[[action]], self.env.config)
-        
-        # Convert to tensors
-        state = torch.tensor(movie_features, dtype=torch.float32).to(self.env.config.device)
-        action = torch.tensor([action], dtype=torch.int64).to(self.env.config.device)
-        log_prob = torch.tensor([log_prob], dtype=torch.float32).to(self.env.config.device)
-        return_value = torch.tensor([reward], dtype=torch.float32).to(self.env.config.device)
-        
-        # PPO optimization step
-        for _ in range(self.epochs):
-            action_probs, state_value = self.policy_model(state)
+            # Send all 25 movie embeddings as input to the policy
+            movie_features = np.stack(top_movies['embedding'].values)
+
+            # Get action probabilities and sample an action
+            action, log_prob = self.select_action(movie_features)
             
-            dist = Categorical(action_probs)
-            new_log_prob = dist.log_prob(action)
+            # Compute reward for the selected action
+            reward = self.env.get_rewards(user_id, top_movies.iloc[[action]], self.env.config)
             
-            ratio = torch.exp(new_log_prob - log_prob.detach())
-            advantage = return_value - state_value.squeeze()
+            # Convert to tensors
+            state = torch.tensor(movie_features, dtype=torch.float32).to(self.env.config.device)
+            action = torch.tensor([action], dtype=torch.int64).to(self.env.config.device)
+            log_prob = torch.tensor([log_prob], dtype=torch.float32).to(self.env.config.device)
+            return_value = torch.tensor([reward], dtype=torch.float32).to(self.env.config.device)
             
-            surr1 = ratio * advantage
-            surr2 = torch.clamp(ratio, 1 - self.epsilon, 1 + self.epsilon) * advantage
+            # PPO optimization step
+            for _ in range(self.epochs):
+                action_probs, state_value = self.policy_model(state)
+                
+                dist = Categorical(action_probs)
+                new_log_prob = dist.log_prob(action)
+                
+                ratio = torch.exp(new_log_prob - log_prob.detach())
+                advantage = return_value - state_value.squeeze()
+                
+                surr1 = ratio * advantage
+                surr2 = torch.clamp(ratio, 1 - self.epsilon, 1 + self.epsilon) * advantage
+                
+                policy_loss = -torch.min(surr1, surr2).mean()
+                value_loss = self.loss_fn(state_value.view(-1), return_value.view(-1))
+                
+                loss = policy_loss + 0.5 * value_loss
+                
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
             
-            policy_loss = -torch.min(surr1, surr2).mean()
-            value_loss = self.loss_fn(state_value.view(-1), return_value.view(-1))
-            
-            loss = policy_loss + 0.5 * value_loss
-            
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-        
-        if episode % 10 == 0:
-            print(f"Episode {episode}: Loss {loss.item()} Reward {reward}")
-            log_training(episode, loss.item(), reward)
-      save_model(self.policy_model, "src/policy_model","baseline")
+            if episode % 10 == 0:
+                print(f"Episode {episode}: Loss {loss.item()} Reward {reward}")
+                log_training(episode, loss.item(), reward)
+        save_model(self.policy_model, "src/policy_model","baseline")
 
